@@ -12,6 +12,8 @@ The relevant pin mappings are set in the [config.h](include/config.h) file.
 
 ### Modbus protocol
 
+[EPEver documentation](docs/ControllerProtocolV2.3.pdf)
+
 ## Configuration
 
 The firmware is configured using the `config.json` file on the ESP32 file system. This can be changed via the web UI, or pre-flashed using the PlatformIO 'Upload Filesystem Image' target
