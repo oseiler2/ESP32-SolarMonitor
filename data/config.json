@@ -1,0 +1,8 @@
+{
+  "controllerNodeId": 1,
+  "timezone": "NZST-12NZDT,M9.5.0,M4.1.0/3",
+  "hasRelais": false,
+  "relaisDuration": 3,
+  "hasLora": false,
+  "wifi": true  
+}
