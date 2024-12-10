@@ -1,5 +1,6 @@
 #include <logging.h>
 #include <housekeeping.h>
+#include <mqtt.h>
 #include <power.h>
 #include <esp_heap_caps.h>
 #include <configManager.h>
@@ -25,7 +26,10 @@ namespace housekeeping {
       ESP_LOGI(TAG, "WifiLoop %u bytes left | Taskstate = %d | core = %u | priority = %u",
         uxTaskGetStackHighWaterMark(wifiManagerTask), eTaskGetState(wifiManagerTask), xTaskGetAffinity(wifiManagerTask), uxTaskPriorityGet(wifiManagerTask));
     }
-
+    if (mqtt::mqttLoop) {
+      ESP_LOGI(TAG, "MqttLoop %u bytes left | Taskstate = %d | core = %u | priority = %u",
+        uxTaskGetStackHighWaterMark(mqtt::mqttTask), eTaskGetState(mqtt::mqttTask), xTaskGetAffinity(mqtt::mqttTask), uxTaskPriorityGet(mqtt::mqttTask));
+    }
     if (ESP.getMinFreeHeap() <= 2048) {
       ESP_LOGW(TAG,
         "Memory full, counter cleared (heap low water mark = %u Bytes / "

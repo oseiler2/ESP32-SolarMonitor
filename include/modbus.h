@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <config.h>
 #include <ModbusMaster.h>
+#include <model.h>
 
 //extern ModbusMaster node;
 
@@ -24,8 +25,8 @@ uint16_t getResponseBuffer(uint8_t u8Index);
 void clearTransmitBuffer();
 uint8_t setTransmitBuffer(uint8_t u8Index, uint16_t u16Value);
 
-void readLiveData(uint8_t* payload);
-void readStatsData(uint8_t* payload);
+LiveData readLiveData();
+StatsData readStatsData();
 void readRTC(uint8_t* payload);
 void writeRTC(uint8_t* payload);
 

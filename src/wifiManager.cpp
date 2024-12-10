@@ -1,3 +1,4 @@
+#include <globals.h>
 #include <logging.h>
 
 #include <wifiManager.h>
@@ -382,6 +383,7 @@ namespace WifiManager {
       if (res == CONFIG_PARAM_UPDATED) {
         updated = true;
         rebootRequired |= configParameter->isRebootRequiredOnChange();
+        if (configParameter->getFunction() & CONFIG_TYPE_LORA) changedMask = changedMask | CONFIG_UPDATED_LORA;
       }
     }
     if (updated) changedMask = changedMask | CONFIG_UPDATED_SAVE_CONFIG;
@@ -399,6 +401,10 @@ namespace WifiManager {
     if (changedMask & CONFIG_REBOOT_REQUIRED) {
       ESP_LOGW(TAG, "Rebooting in 10 secs...");
       startTimer("Reboot", 10000, reboot);
+    }
+    if (changedMask & CONFIG_UPDATED_LORA) {
+      ESP_LOGI(TAG, "Updating Lora settings in 5 secs...");
+      startTimer("Update Lora settings", 5000, updateLoraSettings);
     }
   }
 

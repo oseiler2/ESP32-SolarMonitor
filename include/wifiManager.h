@@ -7,11 +7,9 @@
 
 extern void reboot(TimerHandle_t xTimer);
 extern void saveConfig(TimerHandle_t xTimer);
+extern void updateLoraSettings(TimerHandle_t xTimer);
 
 namespace WifiManager {
-
-  typedef void (*configChangedCallback_t)();
-
   void setupWifiManager(const char* appName, std::vector<ConfigParameterBase<Config>*> configParameterVector, bool keepCaptivePortalActive, bool captivePortalActiveWhenNotConnected);
   void resetSettings();
   void startCaptivePortal();

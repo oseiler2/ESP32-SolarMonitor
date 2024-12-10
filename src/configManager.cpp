@@ -18,6 +18,14 @@ Config config;
 }
 */
 
+#define DEFAULT_DEVICE_ID                    0
+#define DEFAULT_MQTT_TOPIC      "solarmonitor"
+#define DEFAULT_MQTT_HOST          "127.0.0.1"
+#define DEFAULT_MQTT_PORT                 1883
+#define DEFAULT_MQTT_USERNAME   "solarmonitor"
+#define DEFAULT_MQTT_PASSWORD   "solarmonitor"
+#define DEFAULT_MQTT_USE_TLS             false
+#define DEFAULT_MQTT_INSECURE            false
 std::vector<ConfigParameterBase<Config>*> configParameterVector;
 
 void setupConfigManager() {
@@ -30,12 +38,22 @@ void setupConfigManager() {
   }
 
   //  configParameterVector.clear();
-  configParameterVector.push_back(new CharArrayConfigParameter<Config>("timezone", "Timezone", (char Config::*) & Config::timezone, "NZST-12NZDT,M9.5.0,M4.1.0/3", TIMEZONE_LEN));
-  configParameterVector.push_back(new Uint8ConfigParameter<Config>("controllerNodeId", "Solar Controller Node Id", &Config::solarControllerNodeId, 1, false, true));
-  configParameterVector.push_back(new BooleanConfigParameter<Config>("hasRelais", "Board has relais populated", &Config::hasRelais, false));
-  configParameterVector.push_back(new Uint8ConfigParameter<Config>("relaisDuration", "Duration(s) for the relais to operate", &Config::relaisDuration, 3, false, false));
-  configParameterVector.push_back(new BooleanConfigParameter<Config>("hasLora", "Board has Lora module populated", &Config::hasLora, false));
-    configParameterVector.push_back(new BooleanConfigParameter<Config>("wifi", "WiFi enable", &Config::wifiEnabled, true, true));
+  configParameterVector.push_back(new Uint16ConfigParameter<Config>("deviceId", "Device ID", &Config::deviceId, DEFAULT_DEVICE_ID, CONFIG_TYPE_MQTT, false, false));
+  configParameterVector.push_back(new CharArrayConfigParameter<Config>("mqttTopic", "MQTT topic", (char Config::*) & Config::mqttTopic, DEFAULT_MQTT_TOPIC, MQTT_TOPIC_LEN, CONFIG_TYPE_MQTT));
+  configParameterVector.push_back(new CharArrayConfigParameter<Config>("mqttUsername", "MQTT username", (char Config::*) & Config::mqttUsername, DEFAULT_MQTT_USERNAME, MQTT_USERNAME_LEN, CONFIG_TYPE_MQTT));
+  configParameterVector.push_back(new CharArrayConfigParameter<Config>("mqttPassword", "MQTT password", (char Config::*) & Config::mqttPassword, DEFAULT_MQTT_PASSWORD, MQTT_PASSWORD_LEN, CONFIG_TYPE_MQTT));
+  configParameterVector.push_back(new CharArrayConfigParameter<Config>("mqttHost", "MQTT host", (char Config::*) & Config::mqttHost, DEFAULT_MQTT_HOST, MQTT_HOSTNAME_LEN, CONFIG_TYPE_MQTT));
+  configParameterVector.push_back(new Uint16ConfigParameter<Config>("mqttServerPort", "MQTT port", &Config::mqttServerPort, DEFAULT_MQTT_PORT, CONFIG_TYPE_MQTT));
+  configParameterVector.push_back(new BooleanConfigParameter<Config>("mqttUseTls", "MQTT use TLS", &Config::mqttUseTls, DEFAULT_MQTT_USE_TLS, CONFIG_TYPE_MQTT));
+  configParameterVector.push_back(new BooleanConfigParameter<Config>("mqttInsecure", "MQTT ignore certificate errors", &Config::mqttInsecure, DEFAULT_MQTT_INSECURE, CONFIG_TYPE_MQTT));
+  configParameterVector.push_back(new CharArrayConfigParameter<Config>("timezone", "Timezone", (char Config::*) & Config::timezone, "NZST-12NZDT,M9.5.0,M4.1.0/3", TIMEZONE_LEN, CONFIG_TYPE_NONE));
+  configParameterVector.push_back(new Uint8ConfigParameter<Config>("controllerNodeId", "Solar Controller Node Id", &Config::solarControllerNodeId, 1, CONFIG_TYPE_NONE, false, true));
+  configParameterVector.push_back(new BooleanConfigParameter<Config>("hasRelais", "Board has relais populated", &Config::hasRelais, false, CONFIG_TYPE_NONE));
+  configParameterVector.push_back(new Uint8ConfigParameter<Config>("relaisDuration", "Duration(s) for the relais to operate", &Config::relaisDuration, 3, CONFIG_TYPE_NONE, false, false));
+  configParameterVector.push_back(new BooleanConfigParameter<Config>("hasLora", "Board has Lora module populated", &Config::hasLora, false, CONFIG_TYPE_LORA, true));
+  configParameterVector.push_back(new BooleanConfigParameter<Config>("wifi", "WiFi enable", &Config::wifiEnabled, true, CONFIG_TYPE_NONE, true));
+  configParameterVector.push_back(new Uint32ConfigParameter<Config>("liveDataInt", "LiveData interval", &Config::liveDataInterval, 300ul, LIVE_DATA_MIN_INTERVAL, 0xfffffffful, CONFIG_TYPE_NONE, true));
+  configParameterVector.push_back(new Uint32ConfigParameter<Config>("statsDataInt", "StatsData interval", &Config::statsDataInterval, 3600ul, STATS_DATA_MIN_INTERVAL, 0xfffffffful, CONFIG_TYPE_NONE, true));
 }
 
 std::vector<ConfigParameterBase<Config>*> getConfigParameters() {

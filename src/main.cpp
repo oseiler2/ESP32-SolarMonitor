@@ -9,6 +9,8 @@
 #include <timekeeper.h>
 #include <radio.h>
 #include <modbus.h>
+#include <mqtt.h>
+#include <model.h>
 
 #include <housekeeping.h>
 
@@ -23,6 +25,8 @@
 
 // Local logging tag
 static const char TAG[] = "Main";
+
+Model* model;
 
 TaskHandle_t wifiManagerTask;
 
@@ -49,11 +53,47 @@ void goToDeepSleep() {
 }
 
 boolean saveConfigEvt = false;
+boolean updateLoraSettingsEvt = false;
 
 void saveConfig(TimerHandle_t xTimer) {
   if (xTimer != nullptr) saveConfigEvt = true;
 }
 
+void modelUpdatedEvt(uint16_t mask) {
+  if ((mask & ~M_CONFIG_CHANGED) != M_NONE) {
+    char buf[8];
+    DynamicJsonDocument* doc = new DynamicJsonDocument(1024);
+    if (mask & M_LIVE_DATA) {
+      LiveData liveData = model->getLiveData();
+      (*doc)["panel_mV"] = liveData.panel_mV;
+      (*doc)["load_mV"] = liveData.load_mV;
+      (*doc)["battery_mV"] = liveData.battery_mV;
+      (*doc)["panel_mA"] = liveData.panel_mA;
+      (*doc)["load_mA"] = liveData.load_mA;
+      (*doc)["battery_mA"] = liveData.battery_mA;
+      (*doc)["batterySoc"] = liveData.batterySoc;
+      (*doc)["batteryCurrent_mA"] = liveData.batteryCurrent_mA;
+    }
+    if (mask & M_STATS_DATA) {
+      StatsData statsData = model->getStatsData();
+      (*doc)["battery_min_mV"] = statsData.battery_min_mV;
+      (*doc)["battery_max_mV"] = statsData.battery_max_mV;
+      (*doc)["panel_min_mV"] = statsData.panel_min_mV;
+      (*doc)["panel_max_mV"] = statsData.panel_max_mV;
+      (*doc)["consumed_Wh"] = statsData.consumed_Wh;
+      (*doc)["generated_Wh"] = statsData.generated_Wh;
+      (*doc)["heatsinkTempCenti"] = statsData.heatsinkTemp_centiDeg;
+      (*doc)["statusBattery"] = statsData.statusBattery;
+      (*doc)["statusCharger"] = statsData.statusCharger;
+      (*doc)["statusDischarger"] = statsData.statusDischarger;
+    }
+    mqtt::publishData(doc);
+  }
+}
+
+void updateLoraSettings(TimerHandle_t xTimer) {
+  if (xTimer != nullptr) updateLoraSettingsEvt = true;
+}
 
 void logCoreInfo() {
   esp_chip_info_t chip_info;
@@ -87,6 +127,9 @@ void logCoreInfo() {
 void heap_caps_alloc_failed_hook(size_t requested_size, uint32_t caps, const char* function_name) {
   ESP_LOGE(TAG, "%s was called but failed to allocate %d bytes with %04x%04x capabilities.", function_name, requested_size, (uint16_t)(caps >> 16), (uint16_t)(caps & 0x0000ffff));
 }
+
+RTC_NOINIT_ATTR uint32_t liveDataSent;
+RTC_NOINIT_ATTR uint32_t statsDataSent;
 
 void setup() {
   // WDT
@@ -131,6 +174,8 @@ void setup() {
 #endif
 
   ESP_LOGI(TAG, "ESP Solar monitor v%s. Built from %s @ %s", APP_VERSION, SRC_REVISION, BUILD_TIMESTAMP);
+
+  model = new Model(modelUpdatedEvt);
 
   logCoreInfo();
 
@@ -179,6 +224,20 @@ void setup() {
       8192,               // stack size of task}
       1,                  // priority of the task
       0);                 // CPU core
+
+    mqtt::setupMqtt("SolarMon");
+
+    char msg[128];
+    sprintf(msg, "Reset reason: %u", resetReason);
+    mqtt::publishStatusMsg(msg);
+
+    xTaskCreate(
+      mqtt::mqttLoop,     // task function
+      "mqttLoop",         // name of task
+      8192,               // stack size of task
+      (void*)1,           // parameter of the task
+      2,                  // priority of the task
+      &mqtt::mqttTask);   // task handle
   }
 
   esp_log_level_set("*", ESP_LOG_VERBOSE);
@@ -194,6 +253,10 @@ void setup() {
 
   setupModbus();
 
+  if (!reinitFromSleep) {
+    liveDataSent = millis() - (((config.liveDataInterval * 1000ul) / 10) * 9);
+    statsDataSent = millis() - (((config.statsDataInterval * 1000ul) / 10) * 9);
+  }
   ESP_LOGI(TAG, "Setup done.");
 }
 
@@ -208,6 +271,12 @@ void loop() {
     saveConfigEvt = false;
     ESP_LOGI(TAG, "saveConfigEvt");
     saveConfiguration(config);
+    model->configurationChanged();
+  }
+
+  if (updateLoraSettingsEvt) {
+    updateLoraSettingsEvt = false;
+    ESP_LOGI(TAG, "updateLoraSettingsEvt");
   }
 
   if (buttonState != oldConfirmedButtonState && (millis() - lastBtnDebounceTime) > debounceDelay) {
@@ -252,6 +321,18 @@ void loop() {
         WifiManager::startCaptivePortal();
       }
     }
+  }
+
+  if (config.liveDataInterval >= LIVE_DATA_MIN_INTERVAL && ((Power::getUpTime() - liveDataSent) > (config.liveDataInterval * 1000ul))) {
+    ESP_LOGI(TAG, "Sending LiveData.....");
+    model->updateModel(readLiveData());
+    liveDataSent = Power::getUpTime();
+  }
+
+  if (config.statsDataInterval >= STATS_DATA_MIN_INTERVAL && ((Power::getUpTime() - statsDataSent) > (config.statsDataInterval * 1000ul))) {
+    ESP_LOGI(TAG, "Sending StatsData.....");
+    model->updateModel(readStatsData());
+    statsDataSent = Power::getUpTime();
   }
 
   vTaskDelay(pdMS_TO_TICKS(5));

@@ -1,5 +1,6 @@
 #include <modbus.h>
 #include <configManager.h>
+#include <model.h>
 
 HardwareSerial rs485Serial(1);
 
@@ -99,13 +100,20 @@ uint8_t writeMultipleRegisters(uint16_t addr, uint16_t qty) {
 
 #define MAX_RETRY 3
 
-uint8_t readInputRegisterRetry(uint16_t addr, uint8_t* payload, uint8_t payloadIdx) {
+uint8_t readInputRegisterRetry(uint16_t addr, uint8_t* payload, uint8_t payloadIdx = 0) {
   uint8_t i = 0;
   uint8_t result;
   do { result = readInputRegister(addr); } while (i++ < MAX_RETRY && result != ModbusMaster::ku8MBSuccess);
   if (result != ModbusMaster::ku8MBSuccess) return result;
   payload[payloadIdx] = lowByte(getResponseBuffer(0));
   payload[payloadIdx + 1] = highByte(getResponseBuffer(0));
+  return result;
+}
+
+uint8_t readInputRegisterRetry(uint16_t addr) {
+  uint8_t i = 0;
+  uint8_t result;
+  do { result = readInputRegister(addr); } while (i++ < MAX_RETRY && result != ModbusMaster::ku8MBSuccess);
   return result;
 }
 
@@ -148,67 +156,77 @@ void writeRTC(uint8_t* payload) {
   ESP_LOGI(TAG, "%s", result == ModbusMaster::ku8MBSuccess ? "Success!" : "Failure!");
 }
 
-void readLiveData(uint8_t* payload) {
+LiveData readLiveData() {
   ESP_LOGI(TAG, "Reading live data");
-  if (readInputRegisterRetry(LIVE_DATA | PANEL_VOLTS, payload, 0) != ModbusMaster::ku8MBSuccess) { return; }
-  if (readInputRegisterRetry(LIVE_DATA | PANEL_AMPS, payload, 2) != ModbusMaster::ku8MBSuccess) { return; }
-  if (readInputRegisterRetry(LIVE_DATA | BATT_VOLTS, payload, 4) != ModbusMaster::ku8MBSuccess) { return; }
-  if (readInputRegisterRetry(LIVE_DATA | BATT_AMPS, payload, 6) != ModbusMaster::ku8MBSuccess) { return; }
-  if (readInputRegisterRetry(LIVE_DATA | LOAD_VOLTS, payload, 8) != ModbusMaster::ku8MBSuccess) { return; }
-  if (readInputRegisterRetry(LIVE_DATA | LOAD_AMPS, payload, 10) != ModbusMaster::ku8MBSuccess) { return; }
+  static uint8_t payload[2];
+  LiveData stats;
+  boolean success = true;
+  success &= readInputRegisterRetry(LIVE_DATA | PANEL_VOLTS) == ModbusMaster::ku8MBSuccess;
+  stats.panel_mV = getResponseBuffer(0) * 10;
+  success &= readInputRegisterRetry(LIVE_DATA | PANEL_AMPS) == ModbusMaster::ku8MBSuccess;
+  stats.panel_mA = getResponseBuffer(0) * 10;
+  success &= readInputRegisterRetry(LIVE_DATA | BATT_VOLTS) == ModbusMaster::ku8MBSuccess;
+  stats.battery_mV = getResponseBuffer(0) * 10;
+  success &= readInputRegisterRetry(LIVE_DATA | BATT_AMPS) == ModbusMaster::ku8MBSuccess;
+  stats.battery_mA = getResponseBuffer(0) * 10;
+  success &= readInputRegisterRetry(LIVE_DATA | LOAD_VOLTS) == ModbusMaster::ku8MBSuccess;
+  stats.load_mV = getResponseBuffer(0) * 10;
+  success &= readInputRegisterRetry(LIVE_DATA | LOAD_AMPS) == ModbusMaster::ku8MBSuccess;
+  stats.load_mA = getResponseBuffer(0) * 10;
   // ignore high byte - overwrite [13]
-  if (readInputRegisterRetry(LIVE_DATA | BATTERY_SOC, payload, 12) != ModbusMaster::ku8MBSuccess) { return; }
+  success &= readInputRegisterRetry(LIVE_DATA | BATTERY_SOC) == ModbusMaster::ku8MBSuccess;
+  stats.batterySoc = getResponseBuffer(0);
 
   uint8_t i = 0; uint8_t result;
   do { result = readInputRegisters(BATTERY_CURRENT_L, 2); } while (i++ < MAX_RETRY && result != ModbusMaster::ku8MBSuccess);
-  if (result != ModbusMaster::ku8MBSuccess) { return; }
+  success &= result == ModbusMaster::ku8MBSuccess;
+
   uint16_t data = getResponseBuffer(1) & 0x8000u;  // keep MSB
   data |= getResponseBuffer(0) & 0x7fffu; // add remaining lower bits
-  payload[13] = lowByte(data);
-  payload[14] = highByte(data);
-
+  payload[0] = lowByte(data);
+  payload[1] = highByte(data);
+  stats.batteryCurrent_mA = ((uint16_t)payload[0] + ((uint16_t)payload[1] << 8)) * 10;
   ESP_LOGI(TAG, "Panel: %2.2fV %2.2fA, Bat: %2.2fV %2.2fA, Load: %2.2fV %2.2fA, SoC %u%%, Bat current %2.2fA",
-    ((uint16_t)payload[0] + ((uint16_t)payload[1] << 8)) / 100.0, ((uint16_t)payload[2] + ((uint16_t)payload[3] << 8)) / 100.0,
-    ((uint16_t)payload[4] + ((uint16_t)payload[5] << 8)) / 100.0, ((uint16_t)payload[6] + ((uint16_t)payload[7] << 8)) / 100.0,
-    ((uint16_t)payload[8] + ((uint16_t)payload[9] << 8)) / 100.0, ((uint16_t)payload[10] + ((uint16_t)payload[11] << 8)) / 100.0,
-    payload[12], ((uint16_t)payload[13] + ((uint16_t)payload[14] << 8)) / 100.0
-  );
-
+    stats.panel_mV / 1000.0, stats.panel_mA / 1000.0, stats.battery_mV / 1000.0, stats.battery_mA / 1000.0, stats.load_mV / 1000.0, stats.load_mA / 1000.0,
+    stats.batterySoc, stats.batteryCurrent_mA / 1000.0);
+  if (success) return stats;
+  else
+    return (LiveData) {
+    .panel_mV = 0,
+      .load_mV = 0,
+      .battery_mV = 0,
+      .panel_mA = 0,
+      .load_mA = 0,
+      .battery_mA = 0,
+      .batterySoc = 0,
+      .batteryCurrent_mA = 0
+  };
 }
 
-void readStatsData(uint8_t* payload) {
+StatsData readStatsData() {
   ESP_LOGI(TAG, "Reading stats data");
-  if (readInputRegistersRetry(STATISTICS, GEN_ENERGY_DAY_L + 1) != ModbusMaster::ku8MBSuccess) { return; }
-  payload[0] = lowByte(getResponseBuffer(PV_MAX));
-  payload[1] = highByte(getResponseBuffer(PV_MAX));
-  payload[2] = lowByte(getResponseBuffer(PV_MIN));
-  payload[3] = highByte(getResponseBuffer(PV_MIN));
-  payload[4] = lowByte(getResponseBuffer(BATT_MAX));
-  payload[5] = highByte(getResponseBuffer(BATT_MAX));
-  payload[6] = lowByte(getResponseBuffer(BATT_MIN));
-  payload[7] = highByte(getResponseBuffer(BATT_MIN));
-  payload[8] = lowByte(getResponseBuffer(CONS_ENERGY_DAY_L));
-  payload[9] = highByte(getResponseBuffer(CONS_ENERGY_DAY_L));
-  //    payload[10] = lowByte(getResponseBuffer(CONS_ENGERY_DAY_H));
-  //    payload[11] = highByte(getResponseBuffer(CONS_ENGERY_DAY_H));
-  payload[10] = lowByte(getResponseBuffer(GEN_ENERGY_DAY_L));
-  payload[11] = highByte(getResponseBuffer(GEN_ENERGY_DAY_L));
-  //    payload[14] = lowByte(getResponseBuffer(GEN_ENERGY_DAY_H));
-  //    payload[15] = highByte(getResponseBuffer(GEN_ENERGY_DAY_H));
+  static uint8_t payload[13];
+  StatsData stats;
+  boolean success = true;
+  success &= readInputRegistersRetry(STATISTICS, GEN_ENERGY_DAY_L + 1) == ModbusMaster::ku8MBSuccess;
+  stats.panel_max_mV = getResponseBuffer(PV_MAX) * 10;
+  stats.panel_min_mV = getResponseBuffer(PV_MIN) * 10;
+  stats.battery_max_mV = getResponseBuffer(BATT_MAX) * 10;
+  stats.battery_min_mV = getResponseBuffer(BATT_MIN) * 10;
+  stats.consumed_Wh = getResponseBuffer(CONS_ENERGY_DAY_L) * 10;
+  stats.generated_Wh = getResponseBuffer(GEN_ENERGY_DAY_L) * 10;
 
-  if (readInputRegisterRetry(LIVE_DATA | HEATSINK_TEMP, payload, 12) != ModbusMaster::ku8MBSuccess) { return; }
-  if (readInputRegistersRetry(STATUS_FLAGS, 3) != ModbusMaster::ku8MBSuccess) { return; }
-  payload[14] = lowByte(getResponseBuffer(STATUS_BATTERY));
-  payload[15] = highByte(getResponseBuffer(STATUS_BATTERY));
-  payload[16] = lowByte(getResponseBuffer(STATUS_CHARGER));
-  payload[17] = highByte(getResponseBuffer(STATUS_CHARGER));
-  payload[18] = lowByte(getResponseBuffer(STATUS_DISCHARGER));
-  payload[19] = highByte(getResponseBuffer(STATUS_DISCHARGER));
+  success &= readInputRegisterRetry(LIVE_DATA | HEATSINK_TEMP) == ModbusMaster::ku8MBSuccess;
+  stats.heatsinkTemp_centiDeg = getResponseBuffer(0);
+  success &= readInputRegistersRetry(STATUS_FLAGS, 3) == ModbusMaster::ku8MBSuccess;
+  stats.statusBattery = getResponseBuffer(STATUS_BATTERY);
+  stats.statusCharger = getResponseBuffer(STATUS_CHARGER);
+  stats.statusDischarger = getResponseBuffer(STATUS_DISCHARGER);
 
-  ESP_LOGI(TAG, " Panel max %2.2fV min %2.2fV, Bat max %2.2fV min %2.2fV, Today consumed %2.2fkWh generated %2.2fkWh, heatsink %2.2f°C",
-    ((uint16_t)payload[0] + ((uint16_t)payload[1] << 8)) / 100.0, ((uint16_t)payload[2] + ((uint16_t)payload[3] << 8)) / 100.0,
-    ((uint16_t)payload[4] + ((uint16_t)payload[5] << 8)) / 100.0, ((uint16_t)payload[6] + ((uint16_t)payload[7] << 8)) / 100.0,
-    ((uint16_t)payload[8] + ((uint16_t)payload[9] << 8)) / 100.0, ((uint16_t)payload[10] + ((uint16_t)payload[11] << 8)) / 100.0,
-    ((uint16_t)payload[12] + ((uint16_t)payload[13] << 8)) / 100.0
-  );
-}
+  ESP_LOGI(TAG, "Panel max %2.2fV min %2.2fV, Bat max %2.2fV min %2.2fV, Today consumed %2.2fkWh generated %2.2fkWh, heatsink %2.2f°C",
+    stats.panel_max_mV / 1000.0, stats.panel_min_mV / 1000.0,
+    stats.battery_max_mV / 1000.0, stats.battery_min_mV / 1000.0,
+    stats.consumed_Wh / 1000.0, stats.generated_Wh / 1000.0,
+    stats.heatsinkTemp_centiDeg / 100.0);
+  return stats;
+} 
